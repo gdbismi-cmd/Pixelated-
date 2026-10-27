@@ -3,6 +3,12 @@
 An always-on-top, click-through overlay that pixelates **everything on your screen**, live.
 Your apps keep working as normal underneath: clicks and keystrokes go straight through the overlay.
 
+By default it uses the **Space Impact look**: just two tones, the dark and light green of the
+Nokia 3310 LCD (`#43523D` on `#C7F0D8`). A block turns dark when it is darker than the screen's
+average brightness, so text and shapes become chunky dark sprites on the green LCD. Full colour is still available.
+
+![Space Impact style](docs/space-impact.png)
+
 There are two versions:
 - **Desktop** (`pixelated.py`): Windows and macOS, with a picom shader for Linux
 - **Android** (`android/`): includes a floating on/off switch, see [Android](#android)
@@ -32,6 +38,7 @@ pip install -r requirements.txt
 python pixelated.py                 # default 12 px blocks, 30 fps
 python pixelated.py --block 24      # chunkier
 python pixelated.py --fps 60        # smoother (more CPU)
+python pixelated.py --color         # full colour instead of the 2-tone Space Impact look
 ```
 
 **macOS:** the first time you run it, grant *Screen Recording* permission to your terminal (or Python)
@@ -42,6 +49,7 @@ under System Settings → Privacy & Security, then start the app again. Global h
 
 A tray / menu-bar icon (four coloured squares) gives you:
 - **Pixelate screen**: turn the effect on or off
+- **Space Impact style (2 tones)**: switch between the Nokia LCD look and full colour
 - **Pixel size**: 4 to 64 px
 - **Quit**
 
@@ -50,6 +58,7 @@ Global hotkeys (when `pynput` is installed):
 | Keys | Action |
 |---|---|
 | `Ctrl+Alt+P` | Toggle pixelation |
+| `Ctrl+Alt+T` | Toggle 2-tone / full colour |
 | `Ctrl+Alt+]` | Bigger pixels |
 | `Ctrl+Alt+[` | Smaller pixels |
 | `Ctrl+Alt+Q` | Quit |
@@ -89,7 +98,7 @@ cd android
 ```
 
 ### Using it
-1. Open **Pixelated**, choose a pixel size and tap **Start pixelating**.
+1. Open **Pixelated**, choose a pixel size, leave **Space Impact style** on (or turn it off for full colour), and tap **Start pixelating**.
 2. Allow **Display over other apps** (first time only), then tap Start again.
 3. When Android asks what to share, pick **Entire screen**.
 
@@ -101,7 +110,8 @@ touches also only pass through another app's overlay if it is at most **80% opaq
 2. draws the pixel blocks in an overlay at 80% opacity (90% on Android 11 and older),
 3. "un-blends" each capture: because it knows exactly what it drew, it solves
    `captured = 0.8 x overlay + 0.2 x screen` for the real screen underneath. A tiny black-and-white
-   barcode in the top-left corner says which frame each capture contains.
+   barcode in the top-left corner says which frame each capture contains, and its black/white pairs
+   also let the app measure the real blend strength on your device and correct for it.
 
 The real screen stays faintly visible (20%) through the pixels. The status bar, navigation bar,
 keyboard and system dialogs sit above app overlays, so they are not pixelated. Apps that block screenshots

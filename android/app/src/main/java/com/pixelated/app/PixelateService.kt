@@ -166,7 +166,7 @@ class PixelateService : Service(), SharedPreferences.OnSharedPreferenceChangeLis
         reader = newReader
         capture.post { oldReader?.close() }
 
-        engine = PixelEngine(screenW, screenH, content, Prefs.blockSize(this), capW, capH, OVERLAY_ALPHA)
+        engine = PixelEngine(screenW, screenH, content, Prefs.blockSize(this), capW, capH, OVERLAY_ALPHA, Prefs.twoTone(this))
         overlay?.let { view ->
             val params = view.layoutParams
             if (params.width != screenW || params.height != screenH) {
@@ -322,7 +322,7 @@ class PixelateService : Service(), SharedPreferences.OnSharedPreferenceChangeLis
     }
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences?, key: String?) {
-        if (key == Prefs.KEY_BLOCK) rebuild()
+        if (key == Prefs.KEY_BLOCK || key == Prefs.KEY_TWO_TONE) rebuild()
     }
 
     override fun onDestroy() {

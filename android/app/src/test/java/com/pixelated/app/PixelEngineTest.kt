@@ -23,6 +23,9 @@ class PixelEngineTest {
     private val block = 16
     private val switch = Box(280, 300, 340, 332)
 
+    /** The alpha the simulated compositor really blends with (may differ from what the engine assumes). */
+    private var renderAlpha = alpha
+
     private fun scene(offset: Int) = IntArray(w * h) { i ->
         val x = i % w
         val y = i / w
@@ -52,7 +55,7 @@ class PixelEngineTest {
     }
 
     private fun blend(o: Int, s: Int): Int {
-        fun ch(shift: Int) = Math.round(alpha * (o shr shift and 0xFF) + (1 - alpha) * (s shr shift and 0xFF))
+        fun ch(shift: Int) = Math.round(renderAlpha * (o shr shift and 0xFF) + (1 - renderAlpha) * (s shr shift and 0xFF))
         return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
 
@@ -124,6 +127,39 @@ class PixelEngineTest {
         val (frame2, rounds2) = settle(engine, frame, moved)
         assertTrue(rounds2 in 1 until 20)
         assertMatches(engine, frame2, moved)
+    }
+
+    /** Light "app" with a dark sprite and some text-like rows: what Space Impact mode is made for. */
+    private fun lightScene(offset: Int) = IntArray(w * h) { i ->
+        val x = i % w
+        val y = i / w
+        when {
+            x in (40 + offset)..(100 + offset) && y in 100..160 -> 0xFF202020.toInt()
+            y in 400..440 && (x / 2) % 3 == 0 -> 0xFF303030.toInt()
+            else -> 0xFFF2F2F2.toInt()
+        }
+    }
+
+    private fun tone(engine: PixelEngine, frame: Frame, x: Int, y: Int) =
+        frame.colors!![((y - content.top) / block) * engine.cols + (x - content.left) / block]
+
+    @Test
+    fun twoToneUsesOnlyTheNokiaPaletteAndSettles() {
+        for (real in floatArrayOf(0.8f, 0.75f, 0.85f)) {
+            renderAlpha = real
+            val engine = PixelEngine(w, h, content, block, capW, capH, alpha, twoTone = true)
+            val (frame, rounds) = settle(engine, engine.reset(), lightScene(0))
+            assertTrue("alpha $real: no flicker loop (rounds=$rounds)", rounds < 20)
+            assertTrue(frame.colors!!.all { it == PixelEngine.DARK || it == PixelEngine.LIGHT })
+            assertEquals(PixelEngine.DARK, tone(engine, frame, 70, 130)) // sprite
+            assertEquals(PixelEngine.DARK, tone(engine, frame, 100, 420)) // "text" stays visible
+            assertEquals(PixelEngine.LIGHT, tone(engine, frame, 300, 250)) // background
+
+            val (moved, rounds2) = settle(engine, frame, lightScene(160))
+            assertTrue("alpha $real: rounds2=$rounds2", rounds2 in 1 until 20)
+            assertEquals(PixelEngine.LIGHT, tone(engine, moved, 70, 130))
+            assertEquals(PixelEngine.DARK, tone(engine, moved, 230, 130))
+        }
     }
 
     @Test

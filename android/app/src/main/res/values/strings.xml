@@ -2,6 +2,7 @@
     <string name="app_name">Pixelated</string>
     <string name="intro">Pixelates everything on your screen, on top of every app.</string>
     <string name="pixel_size">Pixel size: %1$d px</string>
+    <string name="two_tone">Space Impact style (2 tones, Nokia 3310 LCD)</string>
     <string name="start">Start pixelating</string>
     <string name="stop">Stop</string>
     <string name="turn_on">Turn on</string>

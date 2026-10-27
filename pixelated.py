@@ -17,6 +17,7 @@ Supported:
 
 Controls: tray icon menu, plus global hotkeys if `pynput` is installed:
   Ctrl+Alt+P   toggle pixelation on/off
+  Ctrl+Alt+T   toggle Space Impact 2-tone look / full colour
   Ctrl+Alt+]   bigger pixels
   Ctrl+Alt+[   smaller pixels
   Ctrl+Alt+Q   quit
@@ -27,19 +28,34 @@ from __future__ import annotations
 import argparse
 import sys
 
-from PIL import Image
+from PIL import Image, ImageStat
 from PySide6.QtCore import QObject, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 BLOCK_SIZES = [4, 6, 8, 12, 16, 24, 32, 48, 64]
 
+# Nokia 3310 LCD palette, as in Space Impact.
+NOKIA_DARK = (0x43, 0x52, 0x3D)
+NOKIA_LIGHT = (0xC7, 0xF0, 0xD8)
 
-def pixelate(img: Image.Image, block: int) -> Image.Image:
-    """Average every `block` x `block` square of `img` into a single pixel."""
-    if block <= 1:
-        return img
-    return img.reduce(block)
+
+def pixelate(img: Image.Image, block: int, two_tone: bool = False) -> Image.Image:
+    """Average every `block` x `block` square of `img` into a single pixel.
+
+    With `two_tone`, every pixel becomes one of the two Nokia LCD tones: blocks darker than the
+    frame's average brightness go dark, so text and outlines stay visible and the look adapts
+    to light and dark apps.
+    """
+    small = img.reduce(block) if block > 1 else img
+    if not two_tone:
+        return small
+    luma = small.convert("L")
+    threshold = ImageStat.Stat(luma).mean[0]
+    mask = luma.point(lambda v: 255 if v < threshold else 0, "1")
+    out = Image.new("RGB", small.size, NOKIA_LIGHT)
+    out.paste(NOKIA_DARK, mask=mask)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -180,7 +196,7 @@ class Overlay(QWidget):
                 self._frame = None
                 self.update()
             return
-        small = pixelate(self._capture.grab(self), self._state.block)
+        small = pixelate(self._capture.grab(self), self._state.block, self._state.two_tone)
         data = small.tobytes("raw", "RGB")
         self._frame = QImage(data, small.width, small.height, small.width * 3, QImage.Format_RGB888).copy()
         self.update()
@@ -203,8 +219,9 @@ class Overlay(QWidget):
 
 
 class State:
-    def __init__(self, block: int, enabled: bool = True) -> None:
+    def __init__(self, block: int, two_tone: bool = True, enabled: bool = True) -> None:
         self.block = block
+        self.two_tone = two_tone
         self.enabled = enabled
 
 
@@ -212,6 +229,7 @@ class Hotkeys(QObject):
     """Global hotkeys via pynput (optional). Signals hop back onto the Qt thread."""
 
     toggle = Signal()
+    tone = Signal()
     bigger = Signal()
     smaller = Signal()
     quit = Signal()
@@ -224,6 +242,7 @@ class Hotkeys(QObject):
         self._listener = keyboard.GlobalHotKeys(
             {
                 "<ctrl>+<alt>+p": self.toggle.emit,
+                "<ctrl>+<alt>+t": self.tone.emit,
                 "<ctrl>+<alt>+]": self.bigger.emit,
                 "<ctrl>+<alt>+[": self.smaller.emit,
                 "<ctrl>+<alt>+q": self.quit.emit,
@@ -248,7 +267,7 @@ class PixelatedApp:
     def __init__(self, args: argparse.Namespace) -> None:
         self.qt = QApplication(sys.argv)
         self.qt.setQuitOnLastWindowClosed(False)
-        self.state = State(args.block)
+        self.state = State(args.block, two_tone=not args.color)
         self.capture = make_capture()
 
         self.overlays = [Overlay(screen, self.state, self.capture) for screen in self.qt.screens()]
@@ -259,6 +278,7 @@ class PixelatedApp:
 
         self.hotkeys = Hotkeys()
         self.hotkeys.toggle.connect(self.toggle)
+        self.hotkeys.tone.connect(lambda: self.tone_action.setChecked(not self.state.two_tone))
         self.hotkeys.bigger.connect(lambda: self.step_block(+1))
         self.hotkeys.smaller.connect(lambda: self.step_block(-1))
         self.hotkeys.quit.connect(self.qt.quit)
@@ -279,6 +299,12 @@ class PixelatedApp:
         self.toggle_action.setChecked(True)
         self.toggle_action.toggled.connect(self.set_enabled)
         menu.addAction(self.toggle_action)
+
+        self.tone_action = QAction("Space Impact style (2 tones)", menu)
+        self.tone_action.setCheckable(True)
+        self.tone_action.setChecked(self.state.two_tone)
+        self.tone_action.toggled.connect(self.set_two_tone)
+        menu.addAction(self.tone_action)
 
         size_menu = menu.addMenu("Pixel size")
         self.size_group = QActionGroup(size_menu)
@@ -306,6 +332,9 @@ class PixelatedApp:
         self.state.enabled = enabled
         self.tick()
 
+    def set_two_tone(self, on: bool) -> None:
+        self.state.two_tone = on
+
     def toggle(self) -> None:
         self.toggle_action.setChecked(not self.state.enabled)
 
@@ -327,6 +356,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Pixelate everything on screen.")
     parser.add_argument("-b", "--block", type=int, default=12, help="pixel block size in screen pixels (default 12)")
     parser.add_argument("--fps", type=float, default=30, help="refresh rate (default 30)")
+    parser.add_argument("--color", action="store_true", help="full colour instead of the 2-tone Space Impact look")
     args = parser.parse_args()
     if args.block < 2:
         parser.error("--block must be at least 2")

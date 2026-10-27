@@ -15,6 +15,7 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -61,6 +62,15 @@ class MainActivity : Activity() {
             })
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))
         showSize(Prefs.blockSize(this))
+
+        root.addView(Switch(this).apply {
+            text = getString(R.string.two_tone)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            isChecked = Prefs.twoTone(this@MainActivity)
+            setOnCheckedChangeListener { _, on -> Prefs.setTwoTone(this@MainActivity, on) }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(16) })
 
         startButton = Button(this).apply { setOnClickListener { onStartStop() } }
         root.addView(startButton, LinearLayout.LayoutParams(

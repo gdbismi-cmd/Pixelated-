@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Pixelated</string>
+    <string name="intro">Pixelates everything on your screen, on top of every app.</string>
+    <string name="pixel_size">Pixel size: %1$d px</string>
+    <string name="start">Start pixelating</string>
+    <string name="stop">Stop</string>
+    <string name="turn_on">Turn on</string>
+    <string name="turn_off">Turn off</string>
+    <string name="status_on">Screen is pixelated</string>
+    <string name="status_off">Paused. Tap the floating switch to turn back on</string>
+    <string name="channel_name">Pixelation overlay</string>
+    <string name="switch_description">Pixelation on/off switch</string>
+    <string name="need_overlay">Allow \"Display over other apps\" for Pixelated, then press Start again.</string>
+    <string name="need_capture">Pixelated needs to see the screen to pixelate it.</string>
+    <string name="how_to">• A floating switch appears on screen: tap it to turn pixelation on or off, drag it to move it.\n• Choose \"Entire screen\" when Android asks what to share.\n• Stop any time from the notification or the status-bar capture chip.\n• The status bar, navigation bar and keyboard are not pixelated.</string>
+</resources>

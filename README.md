@@ -35,7 +35,7 @@ Requires Python 3.9+.
 python -m venv .venv
 # Windows: .venv\Scripts\activate     macOS: source .venv/bin/activate
 pip install -r requirements.txt
-python pixelated.py                 # default 12 px blocks, 30 fps
+python pixelated.py                 # default 1 px blocks, 30 fps
 python pixelated.py --block 24      # chunkier
 python pixelated.py --fps 60        # smoother (more CPU)
 python pixelated.py --color         # full colour instead of the 2-tone Space Impact look
@@ -50,7 +50,7 @@ under System Settings → Privacy & Security, then start the app again. Global h
 A tray / menu-bar icon (four coloured squares) gives you:
 - **Pixelate screen**: turn the effect on or off
 - **Space Impact style (2 tones)**: switch between the Nokia LCD look and full colour
-- **Pixel size**: 4 to 64 px
+- **Pixel size**: 1 to 64 px
 - **Quit**
 
 Global hotkeys (when `pynput` is installed):
@@ -98,7 +98,7 @@ cd android
 ```
 
 ### Using it
-1. Open **Pixelated**, choose a pixel size, leave **Space Impact style** on (or turn it off for full colour), and tap **Start pixelating**.
+1. Open **Pixelated**, choose a pixel size (1 to 80 px, default 1), leave **Space Impact style** on (or turn it off for full colour), and tap **Start pixelating**.
 2. Allow **Display over other apps** (first time only), then tap Start again.
 3. When Android asks what to share, pick **Entire screen**.
 
@@ -115,4 +115,6 @@ touches also only pass through another app's overlay if it is at most **80% opaq
 
 The real screen stays faintly visible (20%) through the pixels. The status bar, navigation bar,
 keyboard and system dialogs sit above app overlays, so they are not pixelated. Apps that block screenshots
-(banking, DRM video) come out dark. When the screen is still the app does no work, so it saves battery.
+(banking, DRM video) come out dark. When the screen is still the app does no work, so it saves battery. At 1 px the app has to
+process every screen pixel, so it redraws more slowly (roughly 10–15 frames a second on a mid-range
+phone while the screen is moving); 2 px and larger stay smooth.

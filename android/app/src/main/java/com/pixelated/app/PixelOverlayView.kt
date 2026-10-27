@@ -22,7 +22,13 @@ class PixelOverlayView(context: Context) : View(context) {
     fun show(engine: PixelEngine, frame: Frame) {
         this.engine = engine
         this.frame = frame
-        bitmap = frame.colors?.let { Bitmap.createBitmap(it, engine.cols, engine.rows, Bitmap.Config.ARGB_8888) }
+        val colors = frame.colors
+        if (colors != null) {
+            // Reuse one bitmap: at 1 px blocks a frame is a full-screen image.
+            val bmp = bitmap?.takeIf { it.width == engine.cols && it.height == engine.rows }
+                ?: Bitmap.createBitmap(engine.cols, engine.rows, Bitmap.Config.ARGB_8888).also { bitmap = it }
+            bmp.setPixels(colors, 0, engine.cols, 0, 0, engine.cols, engine.rows)
+        }
         invalidate()
     }
 
@@ -36,6 +42,7 @@ class PixelOverlayView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val engine = engine ?: return
         val frame = frame ?: return
+        val bitmap = bitmap.takeIf { !frame.isRaw }
         // The engine works in screen coordinates; shift by wherever the window really landed.
         getLocationOnScreen(location)
         canvas.translate(-location[0].toFloat(), -location[1].toFloat())

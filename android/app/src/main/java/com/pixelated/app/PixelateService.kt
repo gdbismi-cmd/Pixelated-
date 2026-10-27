@@ -50,8 +50,11 @@ class PixelateService : Service(), SharedPreferences.OnSharedPreferenceChangeLis
          */
         val OVERLAY_ALPHA = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.8f else 0.9f
 
-        /** Captures at 1/2 resolution: plenty for block averages and 4x less work. */
-        private const val CAPTURE_DIVISOR = 2
+        /**
+         * Captures at 1/2 resolution (plenty for block averages, 4x less work), except for
+         * 1 px blocks, which need every screen pixel.
+         */
+        private fun captureDivisor(block: Int) = if (block >= 2) 2 else 1
         private const val CHANNEL = "pixelate"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "Pixelated"
@@ -145,9 +148,11 @@ class PixelateService : Service(), SharedPreferences.OnSharedPreferenceChangeLis
     private fun rebuild() {
         val mp = projection ?: return
         val (screenW, screenH, content) = measureScreen()
-        val capW = max(1, screenW / CAPTURE_DIVISOR)
-        val capH = max(1, screenH / CAPTURE_DIVISOR)
-        val dpi = max(1, resources.displayMetrics.densityDpi / CAPTURE_DIVISOR)
+        val block = Prefs.blockSize(this)
+        val divisor = captureDivisor(block)
+        val capW = max(1, screenW / divisor)
+        val capH = max(1, screenH / divisor)
+        val dpi = max(1, resources.displayMetrics.densityDpi / divisor)
 
         val newReader = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2)
         newReader.setOnImageAvailableListener({ onImage(it) }, capture)
@@ -166,7 +171,7 @@ class PixelateService : Service(), SharedPreferences.OnSharedPreferenceChangeLis
         reader = newReader
         capture.post { oldReader?.close() }
 
-        engine = PixelEngine(screenW, screenH, content, Prefs.blockSize(this), capW, capH, OVERLAY_ALPHA, Prefs.twoTone(this))
+        engine = PixelEngine(screenW, screenH, content, block, capW, capH, OVERLAY_ALPHA, Prefs.twoTone(this))
         overlay?.let { view ->
             val params = view.layoutParams
             if (params.width != screenW || params.height != screenH) {

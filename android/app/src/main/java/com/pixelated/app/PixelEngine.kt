@@ -36,8 +36,8 @@ class Frame(val id: Int, val colors: IntArray?) {
  * All sizes are in real screen pixels except where noted "cap" (capture pixels).
  */
 class PixelEngine(
-    screenW: Int,
-    screenH: Int,
+    private val screenW: Int,
+    private val screenH: Int,
     /** Area that gets pixelated (the screen minus status / navigation bars). */
     val content: Box,
     /** Block size in screen pixels. */
@@ -75,10 +75,19 @@ class PixelEngine(
     private var nextId = 0
     private var current: IntArray? = null
 
-    private val sumR = LongArray(cols * rows)
-    private val sumG = LongArray(cols * rows)
-    private val sumB = LongArray(cols * rows)
+    // Int sums are enough: at most 255 * (pixels per block) and blocks are at most 80 px.
+    // These are full-screen sized at 1 px blocks, so they are allocated once and reused.
+    private val sumR = IntArray(cols * rows)
+    private val sumG = IntArray(cols * rows)
+    private val sumB = IntArray(cols * rows)
     private val count = IntArray(cols * rows)
+    private val estimate = IntArray(cols * rows)
+    private val lumas = IntArray(cols * rows)
+    private var bytes = ByteArray(0)
+    /** Output buffers of frames that left the ring, reused to avoid big per-frame allocations. */
+    private val spare = ArrayDeque<IntArray>()
+
+    private fun newOutput() = spare.removeFirstOrNull() ?: IntArray(cols * rows)
 
     private fun blockIndex(capPos: Int, scale: Float, start: Int, end: Int): Int {
         val screenPos = ((capPos + 0.5f) / scale).toInt()
@@ -105,6 +114,12 @@ class PixelEngine(
         nextId = (nextId + 1) % RING
         ring[id] = colors
         ringValid[id] = true
+        // Only the last few frames can still be on screen; drop older ones (they are full-screen
+        // sized at small block sizes).
+        val stale = (id - KEEP + RING) % RING
+        ring[stale]?.let { if (it !== current) spare.addLast(it) }
+        ring[stale] = null
+        ringValid[stale] = false
         return Frame(id, colors)
     }
 
@@ -120,8 +135,37 @@ class PixelEngine(
         val shown = ring[id]
         calibrate(buf, rowStride, pixelStride)
 
-        sumR.fill(0); sumG.fill(0); sumB.fill(0); count.fill(0)
+        // One bulk copy: indexing a ByteArray is much faster than ByteBuffer.get per channel.
+        val size = min(buf.capacity(), (capH - 1) * rowStride + capW * pixelStride)
+        if (bytes.size < size) bytes = ByteArray(size)
+        buf.duplicate().apply { position(0) }.get(bytes, 0, size)
+        val px = bytes
+
         val ex = exclude?.let { toCapture(it) }
+        if (onePixelPerBlock) {
+            unblendPixels(px, rowStride, pixelStride, shown, ex)
+        } else {
+            sumBlocks(px, rowStride, pixelStride, ex)
+            unblendBlocks(shown)
+        }
+        val prev = current
+        val out = if (twoTone) toTwoTone(prev) else toColor(prev, shown)
+        if (prev != null && out.contentEquals(prev)) {
+            spare.addLast(out)
+            return null
+        }
+        current = out
+        return allocate(out)
+    }
+
+    /** Each block covers exactly one capture pixel (1 px blocks): skip the sums entirely. */
+    private val onePixelPerBlock = block * capW == screenW && block * capH == screenH
+
+    private fun unblendPixels(px: ByteArray, rowStride: Int, pixelStride: Int, shown: IntArray?, ex: Box?) {
+        count.fill(0)
+        // Fixed point (16.16): screen = captured * k - overlay * m.
+        val k = (65536f / (1f - measuredAlpha)).toInt()
+        val m = (65536f * measuredAlpha / (1f - measuredAlpha)).toInt()
         for (y in 0 until capH) {
             val row = rowOf[y]
             if (row < 0) continue
@@ -136,17 +180,53 @@ class PixelEngine(
                     !(skipEx && x >= ex!!.left && x < ex.right)
                 ) {
                     val i = base + col
-                    sumR[i] += (buf.get(p).toInt() and 0xFF).toLong()
-                    sumG[i] += (buf.get(p + 1).toInt() and 0xFF).toLong()
-                    sumB[i] += (buf.get(p + 2).toInt() and 0xFF).toLong()
+                    val r = px[p].toInt() and 0xFF
+                    val g = px[p + 1].toInt() and 0xFF
+                    val b = px[p + 2].toInt() and 0xFF
+                    estimate[i] = if (shown == null) {
+                        (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                    } else {
+                        val o = shown[i]
+                        (0xFF shl 24) or
+                            (clamp(r * k - (o shr 16 and 0xFF) * m) shl 16) or
+                            (clamp(g * k - (o shr 8 and 0xFF) * m) shl 8) or
+                            clamp(b * k - (o and 0xFF) * m)
+                    }
+                    count[i] = 1
+                }
+                p += pixelStride
+            }
+        }
+    }
+
+    private fun sumBlocks(px: ByteArray, rowStride: Int, pixelStride: Int, ex: Box?) {
+        sumR.fill(0); sumG.fill(0); sumB.fill(0); count.fill(0)
+        for (y in 0 until capH) {
+            val row = rowOf[y]
+            if (row < 0) continue
+            val skipTag = y >= tagCap.top && y < tagCap.bottom
+            val skipEx = ex != null && y >= ex.top && y < ex.bottom
+            val base = row * cols
+            var p = y * rowStride
+            for (x in 0 until capW) {
+                val col = colOf[x]
+                if (col >= 0 &&
+                    !(skipTag && x >= tagCap.left && x < tagCap.right) &&
+                    !(skipEx && x >= ex!!.left && x < ex.right)
+                ) {
+                    val i = base + col
+                    sumR[i] += px[p].toInt() and 0xFF
+                    sumG[i] += px[p + 1].toInt() and 0xFF
+                    sumB[i] += px[p + 2].toInt() and 0xFF
                     count[i]++
                 }
                 p += pixelStride
             }
         }
+    }
 
-        // Estimated colour of the real screen in every block (null where nothing was visible).
-        val estimate = arrayOfNulls<Int>(cols * rows)
+    /** Estimated colour of the real screen in every block (only where count > 0). */
+    private fun unblendBlocks(shown: IntArray?) {
         for (i in estimate.indices) {
             val n = count[i]
             if (n == 0) continue
@@ -158,46 +238,61 @@ class PixelEngine(
                 rgb(unblend(r, s shr 16), unblend(g, s shr 8), unblend(b, s))
             }
         }
-        val prev = current
-        val out = if (twoTone) toTwoTone(estimate, prev) else toColor(estimate, prev, shown)
-        if (prev != null && out.contentEquals(prev)) return null
-        current = out
-        return allocate(out)
     }
 
-    private fun toColor(estimate: Array<Int?>, prev: IntArray?, shown: IntArray?) = IntArray(estimate.size) { i ->
-        val c = estimate[i] ?: prev?.get(i) ?: shown?.get(i) ?: GRAY
-        // Per-block hysteresis: tiny changes keep the old colour, so rounding noise
-        // (amplified by the unblend) can't make blocks shimmer or keep the loop running.
-        if (prev != null && colorDiff(c, prev[i]) <= CHANGE_THRESHOLD) prev[i] else c
+    private fun toColor(prev: IntArray?, shown: IntArray?): IntArray {
+        val out = newOutput()
+        for (i in out.indices) {
+            val c = when {
+                count[i] > 0 -> estimate[i]
+                prev != null -> prev[i]
+                shown != null -> shown[i]
+                else -> GRAY
+            }
+            // Per-block hysteresis: tiny changes keep the old colour, so rounding noise
+            // (amplified by the unblend) can't make blocks shimmer or keep the loop running.
+            out[i] = if (prev != null && colorDiff(c, prev[i]) <= CHANGE_THRESHOLD) prev[i] else c
+        }
+        return out
     }
 
     /**
      * Two tones, like the Nokia 3310 LCD. A block goes dark when it is darker than the frame's
      * average brightness, so text and outlines stay readable instead of averaging away, and the
      * look adapts to light and dark apps. Hysteresis around the threshold stops edge blocks flickering.
+     * Luma is in 1/256 steps of an 8-bit level (integer maths: this runs per pixel at 1 px blocks).
      */
-    private fun toTwoTone(estimate: Array<Int?>, prev: IntArray?): IntArray {
-        var sum = 0f
+    private fun toTwoTone(prev: IntArray?): IntArray {
+        var sum = 0L
         var n = 0
-        for (c in estimate) if (c != null) { sum += luma(c); n++ }
-        val threshold = if (n == 0) 128f else (sum / n).coerceIn(48f, 208f)
+        for (i in estimate.indices) if (count[i] > 0) {
+            val l = luma(estimate[i])
+            lumas[i] = l
+            sum += l
+            n++
+        }
+        val threshold = if (n == 0) 128 * 256 else (sum / n).toInt().coerceIn(48 * 256, 208 * 256)
         // Hysteresis scales with the contrast on screen, so it never exceeds the gap
         // between the threshold and the background.
-        var spread = 0f
-        for (c in estimate) if (c != null) spread += abs(luma(c) - threshold)
-        val band = if (n == 0) 0f else min(TONE_HYSTERESIS, 0.5f * spread / n)
-        return IntArray(estimate.size) { i ->
-            val was = prev?.get(i)
-            val c = estimate[i] ?: return@IntArray was ?: LIGHT
-            val l = luma(c)
+        var spread = 0L
+        for (i in estimate.indices) if (count[i] > 0) spread += abs(lumas[i] - threshold)
+        val band = if (n == 0) 0 else min(TONE_HYSTERESIS * 256, (spread / (2L * n)).toInt())
+        val out = newOutput()
+        for (i in out.indices) {
+            val was = if (prev != null) prev[i] else 0
+            if (count[i] == 0) {
+                out[i] = if (prev != null) was else LIGHT
+                continue
+            }
+            val l = lumas[i]
             val dark = when (was) {
                 DARK -> l <= threshold + band
                 LIGHT -> l < threshold - band
                 else -> l < threshold
             }
-            if (dark) DARK else LIGHT
+            out[i] = if (dark) DARK else LIGHT
         }
+        return out
     }
 
     private fun unblend(captured: Float, overlay: Int): Float =
@@ -256,19 +351,26 @@ class PixelEngine(
         /** Tag cell size in screen pixels. */
         const val TAG_CELL = 8
         private const val RING = 1 shl TAG_BITS
+        /** Frames kept for decoding; captures lag the screen by only a frame or two. */
+        private const val KEEP = 6
         private const val TAG_TOLERANCE = 12f
         /** Don't redraw for changes this small (also stops the capture/redraw loop on a still screen). */
         private const val CHANGE_THRESHOLD = 6
         private const val GRAY = 0xFF808080.toInt()
-        private const val TONE_HYSTERESIS = 12f
+        private const val TONE_HYSTERESIS = 12
 
         /** Nokia 3310 LCD palette. */
         const val DARK = 0xFF43523D.toInt()
         const val LIGHT = 0xFFC7F0D8.toInt()
 
-        private fun luma(c: Int) = 0.299f * (c shr 16 and 0xFF) + 0.587f * (c shr 8 and 0xFF) + 0.114f * (c and 0xFF)
+        private fun luma(c: Int) = 77 * (c shr 16 and 0xFF) + 150 * (c shr 8 and 0xFF) + 29 * (c and 0xFF)
 
         private fun channel(v: Float) = v.roundToInt().coerceIn(0, 255)
+        /** Rounds a 16.16 fixed-point value to a 0..255 channel. */
+        private fun clamp(v: Int): Int {
+            val c = (v + 32768) shr 16
+            return if (c < 0) 0 else if (c > 255) 255 else c
+        }
         private fun rgb(r: Float, g: Float, b: Float) =
             (0xFF shl 24) or (channel(r) shl 16) or (channel(g) shl 8) or channel(b)
 

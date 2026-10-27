@@ -33,7 +33,7 @@ from PySide6.QtCore import QObject, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
-BLOCK_SIZES = [4, 6, 8, 12, 16, 24, 32, 48, 64]
+BLOCK_SIZES = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]
 
 # Nokia 3310 LCD palette, as in Space Impact.
 NOKIA_DARK = (0x43, 0x52, 0x3D)
@@ -354,12 +354,12 @@ class PixelatedApp:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pixelate everything on screen.")
-    parser.add_argument("-b", "--block", type=int, default=12, help="pixel block size in screen pixels (default 12)")
+    parser.add_argument("-b", "--block", type=int, default=1, help="pixel block size in screen pixels (default 1)")
     parser.add_argument("--fps", type=float, default=30, help="refresh rate (default 30)")
     parser.add_argument("--color", action="store_true", help="full colour instead of the 2-tone Space Impact look")
     args = parser.parse_args()
-    if args.block < 2:
-        parser.error("--block must be at least 2")
+    if args.block < 1:
+        parser.error("--block must be at least 1")
     if args.fps <= 0:
         parser.error("--fps must be positive")
     return PixelatedApp(args).run()

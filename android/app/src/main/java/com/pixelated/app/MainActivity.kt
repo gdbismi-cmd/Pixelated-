@@ -46,18 +46,19 @@ class MainActivity : Activity() {
 
         sizeLabel = TextView(this).apply { setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f) }
         root.addView(sizeLabel)
-        val steps = (Prefs.MAX_BLOCK - Prefs.MIN_BLOCK) / Prefs.BLOCK_STEP
+        val sizes = Prefs.SIZES
         root.addView(SeekBar(this).apply {
-            max = steps
-            progress = (Prefs.blockSize(this@MainActivity) - Prefs.MIN_BLOCK) / Prefs.BLOCK_STEP
+            max = sizes.size - 1
+            val current = Prefs.blockSize(this@MainActivity)
+            progress = sizes.indexOfFirst { it >= current }.coerceAtLeast(0)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
-                    showSize(Prefs.MIN_BLOCK + value * Prefs.BLOCK_STEP)
+                    showSize(sizes[value])
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) {}
                 override fun onStopTrackingTouch(bar: SeekBar) {
                     // Saved on release only: the running service rebuilds on every change.
-                    Prefs.setBlockSize(this@MainActivity, Prefs.MIN_BLOCK + bar.progress * Prefs.BLOCK_STEP)
+                    Prefs.setBlockSize(this@MainActivity, sizes[bar.progress])
                 }
             })
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))

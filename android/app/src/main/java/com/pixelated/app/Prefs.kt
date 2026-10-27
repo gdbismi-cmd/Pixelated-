@@ -6,17 +6,16 @@ import android.content.SharedPreferences
 object Prefs {
     const val KEY_BLOCK = "block_size"
     const val KEY_TWO_TONE = "two_tone"
-    const val MIN_BLOCK = 8
-    const val MAX_BLOCK = 80
-    const val BLOCK_STEP = 4
-    private const val DEFAULT_BLOCK = 24
+    /** Pixel sizes offered on the slider, in screen pixels. */
+    val SIZES = intArrayOf(1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80)
+    private const val DEFAULT_BLOCK = 1
 
     fun get(context: Context): SharedPreferences =
         context.getSharedPreferences("pixelated", Context.MODE_PRIVATE)
 
-    /** Block size in screen pixels; always even so it maps cleanly onto the half-size capture. */
+    /** Block size in screen pixels. */
     fun blockSize(context: Context) =
-        get(context).getInt(KEY_BLOCK, DEFAULT_BLOCK).coerceIn(MIN_BLOCK, MAX_BLOCK) and 1.inv()
+        get(context).getInt(KEY_BLOCK, DEFAULT_BLOCK).coerceIn(SIZES.first(), SIZES.last())
 
     fun setBlockSize(context: Context, size: Int) = get(context).edit().putInt(KEY_BLOCK, size).apply()
 

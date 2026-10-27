@@ -16,11 +16,13 @@ import kotlin.math.abs
 class PixelEngineTest {
     private val w = 360
     private val h = 640
-    private val capW = w / 2
-    private val capH = h / 2
+    /** Capture downscale factor (the app uses 2, or 1 for 1 px blocks). */
+    private var div = 2
+    private val capW get() = w / div
+    private val capH get() = h / div
     private val alpha = 0.8f
     private val content = Box(0, 24, w, h - 24)
-    private val block = 16
+    private var block = 16
     private val switch = Box(280, 300, 340, 332)
 
     /** The alpha the simulated compositor really blends with (may differ from what the engine assumes). */
@@ -59,18 +61,19 @@ class PixelEngineTest {
         return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
 
-    private val stride = capW * 4 + 32 // row padding, like real ImageReader buffers
+    private val stride get() = capW * 4 + 32 // row padding, like real ImageReader buffers
 
     private fun capture(display: IntArray): ByteBuffer {
         val buf = ByteBuffer.allocate(stride * capH)
         for (y in 0 until capH) for (x in 0 until capW) {
             var r = 0; var g = 0; var b = 0
-            for (dy in 0..1) for (dx in 0..1) {
-                val c = display[(y * 2 + dy) * w + x * 2 + dx]
+            for (dy in 0 until div) for (dx in 0 until div) {
+                val c = display[(y * div + dy) * w + x * div + dx]
                 r += c shr 16 and 0xFF; g += c shr 8 and 0xFF; b += c and 0xFF
             }
+            val n = div * div
             val p = y * stride + x * 4
-            buf.put(p, (r / 4).toByte()); buf.put(p + 1, (g / 4).toByte()); buf.put(p + 2, (b / 4).toByte()); buf.put(p + 3, -1)
+            buf.put(p, (r / n).toByte()); buf.put(p + 1, (g / n).toByte()); buf.put(p + 2, (b / n).toByte()); buf.put(p + 3, -1)
         }
         return buf
     }
@@ -159,6 +162,21 @@ class PixelEngineTest {
             assertTrue("alpha $real: rounds2=$rounds2", rounds2 in 1 until 20)
             assertEquals(PixelEngine.LIGHT, tone(engine, moved, 70, 130))
             assertEquals(PixelEngine.DARK, tone(engine, moved, 230, 130))
+        }
+    }
+
+    @Test
+    fun onePixelBlocksAtFullResolution() {
+        block = 1
+        div = 1
+        for (twoTone in booleanArrayOf(true, false)) {
+            val engine = PixelEngine(w, h, content, block, capW, capH, alpha, twoTone)
+            assertEquals(w, engine.cols)
+            val screen = lightScene(0)
+            val (frame, rounds) = settle(engine, engine.reset(), screen)
+            assertTrue("twoTone=$twoTone rounds=$rounds", rounds < 20)
+            assertEquals(if (twoTone) PixelEngine.DARK else screen[130 * w + 70] and 0xFFFFFF or (0xFF shl 24), tone(engine, frame, 70, 130))
+            if (!twoTone) assertMatches(engine, frame, screen)
         }
     }
 
